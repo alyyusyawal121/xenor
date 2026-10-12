@@ -1,15 +1,14 @@
+
 'use client'
 
-import { useDebounce } from '@/hooks/useDebounce'
 import { useEffect, useState } from 'react'
+
+import { useDebounce } from '@/hooks/useDebounce'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
 import ProductCard from '@/components/ProductCard'
+import { getCategories, getProducts } from '@/lib/productApi'
 import type { Product } from '@/types/product'
-import { getProducts } from '@/lib/productApi'
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
 export default function ProductListing() {
   const [products, setProducts] = useState<Product[]>([])
@@ -22,31 +21,23 @@ export default function ProductListing() {
 
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
 
   const debouncedSearch = useDebounce(search, 400)
 
-  // Mengambil pilihan kategori dari backend.
+  const invalidPriceRange =
+    minPrice !== '' &&
+    maxPrice !== '' &&
+    Number(minPrice) > Number(maxPrice)
+
+  // Mengambil kategori dari API.
   useEffect(() => {
     const controller = new AbortController()
 
     async function loadCategories() {
       try {
-        const response = await fetch(
-          `${API_URL}/api/products/categories`,
-          { signal: controller.signal }
-        )
-
-        if (!response.ok) {
-          throw new Error('Gagal mengambil kategori.')
-        }
-
-        const result: { data: string[] } = await response.json()
-
-        if (Array.isArray(result.data)) {
-          setCategories(['All', ...result.data.filter(
-            (item) => item !== 'All'
-          )])
-        }
+        const result = await getCategories(controller.signal)
+        setCategories(result)
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
           return
@@ -71,11 +62,17 @@ export default function ProductListing() {
     }
   }, [])
 
-  // Satu-satunya proses untuk mengambil daftar produk.
+  // Mengambil produk ketika filter atau retry berubah.
   useEffect(() => {
     const controller = new AbortController()
 
     async function loadProducts() {
+      if (invalidPriceRange) {
+        setIsLoading(false)
+        setError('')
+        return
+      }
+
       try {
         setIsLoading(true)
         setError('')
@@ -111,7 +108,14 @@ export default function ProductListing() {
     loadProducts()
 
     return () => controller.abort()
-  }, [debouncedSearch, category, minPrice, maxPrice])
+  }, [
+    debouncedSearch,
+    category,
+    minPrice,
+    maxPrice,
+    invalidPriceRange,
+    retryCount,
+  ])
 
   function resetFilters() {
     setSearch('')
@@ -124,10 +128,9 @@ export default function ProductListing() {
     return `Rp ${price.toLocaleString('id-ID')}`
   }
 
-  const invalidPriceRange =
-    minPrice !== '' &&
-    maxPrice !== '' &&
-    Number(minPrice) > Number(maxPrice)
+  function retryLoadingProducts() {
+    setRetryCount((current) => current + 1)
+  }
 
   return (
     <>
@@ -244,7 +247,7 @@ export default function ProductListing() {
             </div>
 
             {invalidPriceRange && (
-              <p className="mt-3 text-sm text-red-600">
+              <p role="alert" className="mt-3 text-sm text-red-600">
                 Minimum price cannot exceed maximum price.
               </p>
             )}
@@ -270,7 +273,7 @@ export default function ProductListing() {
           </div>
 
           {/* Loading */}
-          {isLoading && (
+          {isLoading && !invalidPriceRange && (
             <div
               role="status"
               className="py-24 text-center text-neutral-500"
@@ -280,7 +283,7 @@ export default function ProductListing() {
           )}
 
           {/* Error */}
-          {!isLoading && error && (
+          {!isLoading && error && !invalidPriceRange && (
             <div
               role="alert"
               className="mt-10 rounded-2xl border border-red-200 bg-red-50 p-6"
@@ -292,15 +295,13 @@ export default function ProductListing() {
               <p className="mt-2 text-sm text-red-700">{error}</p>
 
               <p className="mt-2 text-sm text-red-700">
-                Pastikan backend berjalan di {API_URL}.
+                Periksa apakah backend API sedang berjalan dan
+                konfigurasi alamat API sudah benar.
               </p>
 
               <button
                 type="button"
-                onClick={() => {
-                  setSearch((current) => current)
-                  window.location.reload()
-                }}
+                onClick={retryLoadingProducts}
                 className="mt-4 rounded-full bg-black px-5 py-2 text-sm text-white transition hover:bg-neutral-800"
               >
                 Try again
