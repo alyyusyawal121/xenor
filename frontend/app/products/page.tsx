@@ -22,15 +22,67 @@ export default function ProductListing() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [retryCount, setRetryCount] = useState(0)
+  const [urlReady, setUrlReady] = useState(false)
 
   const debouncedSearch = useDebounce(search, 400)
 
   const invalidPriceRange =
-    minPrice !== '' &&
-    maxPrice !== '' &&
-    Number(minPrice) > Number(maxPrice)
+    (minPrice !== '' &&
+      (!Number.isFinite(Number(minPrice)) || Number(minPrice) < 0)) ||
+    (maxPrice !== '' &&
+      (!Number.isFinite(Number(maxPrice)) || Number(maxPrice) < 0)) ||
+    (minPrice !== '' &&
+      maxPrice !== '' &&
+      Number(minPrice) > Number(maxPrice))
 
-  // Mengambil kategori dari API.
+  // 1. Membaca filter dari URL saat halaman pertama dibuka.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+
+    setSearch(params.get('q') ?? '')
+    setCategory(params.get('category') || 'All')
+    setMinPrice(params.get('minPrice') ?? '')
+    setMaxPrice(params.get('maxPrice') ?? '')
+
+    setUrlReady(true)
+  }, [])
+
+  // 2. Memperbarui URL saat pengguna mengubah filter.
+  useEffect(() => {
+    if (!urlReady) return
+
+    const params = new URLSearchParams()
+
+    if (search.trim()) {
+      params.set('q', search.trim())
+    }
+
+    if (category !== 'All') {
+      params.set('category', category)
+    }
+
+    if (minPrice !== '') {
+      params.set('minPrice', minPrice)
+    }
+
+    if (maxPrice !== '') {
+      params.set('maxPrice', maxPrice)
+    }
+
+    const query = params.toString()
+    const newUrl = `${window.location.pathname}${
+      query ? `?${query}` : ''
+    }${window.location.hash}`
+
+    const currentUrl =
+      `${window.location.pathname}${window.location.search}${window.location.hash}`
+
+    if (newUrl !== currentUrl) {
+      window.history.replaceState(null, '', newUrl)
+    }
+  }, [urlReady, search, category, minPrice, maxPrice])
+
+  // 3. Mengambil daftar kategori dari API.
   useEffect(() => {
     const controller = new AbortController()
 
@@ -52,18 +104,10 @@ export default function ProductListing() {
     return () => controller.abort()
   }, [])
 
-  // Membaca kategori dari URL, misalnya /products?category=Hoodies.
+  // 4. Mengambil produk berdasarkan filter yang aktif.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const requestedCategory = params.get('category')
+    if (!urlReady) return
 
-    if (requestedCategory) {
-      setCategory(requestedCategory)
-    }
-  }, [])
-
-  // Mengambil produk ketika filter atau retry berubah.
-  useEffect(() => {
     const controller = new AbortController()
 
     async function loadProducts() {
@@ -109,6 +153,7 @@ export default function ProductListing() {
 
     return () => controller.abort()
   }, [
+    urlReady,
     debouncedSearch,
     category,
     minPrice,
@@ -154,7 +199,7 @@ export default function ProductListing() {
             </div>
 
             <p className="text-sm text-neutral-500">
-              {isLoading
+              {!urlReady || isLoading
                 ? 'Loading products...'
                 : `${products.length} Products`}
             </p>
@@ -248,12 +293,13 @@ export default function ProductListing() {
 
             {invalidPriceRange && (
               <p role="alert" className="mt-3 text-sm text-red-600">
-                Minimum price cannot exceed maximum price.
+                Masukkan harga yang valid dan pastikan harga minimum
+                tidak melebihi harga maksimum.
               </p>
             )}
           </div>
 
-          {/* Active filters and reset */}
+          {/* Active filters */}
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-neutral-500">
               {category !== 'All' && `Category: ${category}`}
@@ -273,7 +319,7 @@ export default function ProductListing() {
           </div>
 
           {/* Loading */}
-          {isLoading && !invalidPriceRange && (
+          {(!urlReady || isLoading) && !invalidPriceRange && (
             <div
               role="status"
               className="py-24 text-center text-neutral-500"
@@ -283,7 +329,7 @@ export default function ProductListing() {
           )}
 
           {/* Error */}
-          {!isLoading && error && !invalidPriceRange && (
+          {urlReady && !isLoading && error && !invalidPriceRange && (
             <div
               role="alert"
               className="mt-10 rounded-2xl border border-red-200 bg-red-50 p-6"
@@ -295,8 +341,8 @@ export default function ProductListing() {
               <p className="mt-2 text-sm text-red-700">{error}</p>
 
               <p className="mt-2 text-sm text-red-700">
-                Periksa apakah backend API sedang berjalan dan
-                konfigurasi alamat API sudah benar.
+                Periksa apakah backend API berjalan dan alamat API
+                sudah dikonfigurasi dengan benar.
               </p>
 
               <button
@@ -310,14 +356,14 @@ export default function ProductListing() {
           )}
 
           {/* Product grid */}
-          {!isLoading && !error && !invalidPriceRange && (
-            products.length > 0 ? (
+          {urlReady &&
+            !isLoading &&
+            !error &&
+            !invalidPriceRange &&
+            (products.length > 0 ? (
               <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
                 {products.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                  />
+                  <ProductCard key={product.id} product={product} />
                 ))}
               </div>
             ) : (
@@ -327,7 +373,7 @@ export default function ProductListing() {
                 </h2>
 
                 <p className="mt-2 text-sm text-neutral-500">
-                  Try another keyword or adjust your filters.
+                  Coba kata kunci atau rentang harga yang berbeda.
                 </p>
 
                 <button
@@ -338,8 +384,7 @@ export default function ProductListing() {
                   Clear filters
                 </button>
               </div>
-            )
-          )}
+            ))}
         </section>
       </main>
 
