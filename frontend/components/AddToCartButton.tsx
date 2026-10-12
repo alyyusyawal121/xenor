@@ -22,12 +22,12 @@ export default function AddToCartButton({
   const [quantity, setQuantity] = useState(1)
   const [message, setMessage] = useState('')
 
-  function handleAddToCart() {
-    if (!selectedColor || stock < 1) return
+function handleAddToCart() {
+  if (!selectedColor || stock < 1) return
 
-    addToCart(productId, selectedColor, quantity)
-    setMessage('Produk berhasil ditambahkan ke keranjang.')
-  }
+  addToCart(productId, selectedColor, quantity, stock)
+  setMessage('Produk berhasil ditambahkan ke keranjang.')
+}
 
   return (
     <div className="mt-8">

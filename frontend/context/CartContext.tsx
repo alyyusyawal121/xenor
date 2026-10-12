@@ -19,12 +19,14 @@ type CartContextType = {
   addToCart: (
     productId: number,
     color: string,
-    quantity: number
+    quantity: number,
+    stock: number
   ) => void
   updateQuantity: (
     productId: number,
     color: string,
-    quantity: number
+    quantity: number,
+    stock: number
   ) => void
   removeFromCart: (productId: number, color: string) => void
   clearCart: () => void
@@ -54,7 +56,6 @@ export default function CartProvider({
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [isHydrated, setIsHydrated] = useState(false)
 
-  // Membaca keranjang yang tersimpan saat aplikasi dibuka.
   useEffect(() => {
     try {
       const savedCart = localStorage.getItem(STORAGE_KEY)
@@ -68,7 +69,10 @@ export default function CartProvider({
               item !== null &&
               typeof item === 'object' &&
               typeof item.productId === 'number' &&
+              Number.isInteger(item.productId) &&
+              item.productId > 0 &&
               typeof item.color === 'string' &&
+              item.color.length > 0 &&
               typeof item.quantity === 'number' &&
               Number.isInteger(item.quantity) &&
               item.quantity > 0
@@ -78,14 +82,12 @@ export default function CartProvider({
         }
       }
     } catch {
-      // Jika data penyimpanan rusak, aplikasi tetap bisa berjalan.
       setCartItems([])
     } finally {
       setIsHydrated(true)
     }
   }, [])
 
-  // Menyimpan perubahan keranjang setelah data awal selesai dibaca.
   useEffect(() => {
     if (!isHydrated) return
 
@@ -102,11 +104,17 @@ export default function CartProvider({
   function addToCart(
     productId: number,
     color: string,
-    quantity: number
+    quantity: number,
+    stock: number
   ) {
     if (
+      !Number.isInteger(productId) ||
+      productId < 1 ||
+      !color ||
       !Number.isInteger(quantity) ||
-      quantity < 1
+      quantity < 1 ||
+      !Number.isInteger(stock) ||
+      stock < 1
     ) {
       return
     }
@@ -119,45 +127,53 @@ export default function CartProvider({
       )
 
       if (existingItem) {
+        const nextQuantity = Math.min(
+          existingItem.quantity + quantity,
+          stock
+        )
+
         return currentItems.map((item) =>
           item.productId === productId &&
           item.color === color
-            ? {
-                ...item,
-                quantity: item.quantity + quantity,
-              }
+            ? { ...item, quantity: nextQuantity }
             : item
         )
       }
 
       return [
         ...currentItems,
-        { productId, color, quantity },
+        {
+          productId,
+          color,
+          quantity: Math.min(quantity, stock),
+        },
       ]
     })
   }
 
-  function updateQuantity(
-    productId: number,
-    color: string,
-    quantity: number
+function updateQuantity(
+  productId: number,
+  color: string,
+  quantity: number,
+  stock: number
+) {
+  if (
+    !Number.isInteger(quantity) ||
+    quantity < 1 ||
+    !Number.isInteger(stock) ||
+    stock < 1
   ) {
-    if (
-      !Number.isInteger(quantity) ||
-      quantity < 1
-    ) {
-      return
-    }
-
-    setCartItems((currentItems) =>
-      currentItems.map((item) =>
-        item.productId === productId &&
-        item.color === color
-          ? { ...item, quantity }
-          : item
-      )
-    )
+    return
   }
+
+  setCartItems((currentItems) =>
+    currentItems.map((item) =>
+      item.productId === productId && item.color === color
+        ? { ...item, quantity: Math.min(quantity, stock) }
+        : item
+    )
+  )
+}
 
   function removeFromCart(
     productId: number,

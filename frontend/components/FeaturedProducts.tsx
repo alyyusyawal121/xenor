@@ -7,6 +7,7 @@ import ProductCard from '@/components/ProductCard'
 import { getProducts } from '@/lib/productApi'
 import type { Product } from '@/types/product'
 
+
 export default function FeaturedProducts() {
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -20,7 +21,7 @@ export default function FeaturedProducts() {
         setIsLoading(true)
         setError('')
 
-        const result = await getProducts(controller.signal)
+        const result = await getProducts({}, controller.signal)
 
         setProducts(result.slice(0, 3))
       } catch (err) {

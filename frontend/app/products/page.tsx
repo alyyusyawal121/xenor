@@ -1,102 +1,96 @@
-
 'use client'
 
-
 import { useDebounce } from '@/hooks/useDebounce'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
 import ProductCard from '@/components/ProductCard'
 import type { Product } from '@/types/product'
 import { getProducts } from '@/lib/productApi'
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
-interface ProductsResponse {
-  data: Product[]
-  total: number
-}
-
 export default function ProductListing() {
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<string[]>(['All'])
+
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
   const [minPrice, setMinPrice] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
+
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+
   const debouncedSearch = useDebounce(search, 400)
 
-  
-  
-useEffect(() => {
-  const controller = new AbortController()
-
-  async function loadProducts() {
-    try {
-      setIsLoading(true)
-      setError('')
-
-      const result = await getProducts(
-        {
-          q: debouncedSearch,
-          category,
-          minPrice,
-          maxPrice,
-        },
-        controller.signal
-      )
-
-      setProducts(result)
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        return
-      }
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Gagal memuat produk.'
-      )
-    } finally {
-      if (!controller.signal.aborted) {
-        setIsLoading(false)
-      }
-    }
-  }
-
-  loadProducts()
-
-  return () => controller.abort()
-}, [search, category, minPrice, maxPrice])
-
-  // Ambil data produk dari backend ketika halaman dibuka.
+  // Mengambil pilihan kategori dari backend.
   useEffect(() => {
     const controller = new AbortController()
 
-    async function fetchProducts() {
+    async function loadCategories() {
       try {
-        setIsLoading(true)
-        setError('')
-
         const response = await fetch(
-          `${API_URL}/api/products`,
+          `${API_URL}/api/products/categories`,
           { signal: controller.signal }
         )
 
         if (!response.ok) {
-          throw new Error(
-            `Gagal mengambil produk. Status: ${response.status}`
-          )
+          throw new Error('Gagal mengambil kategori.')
         }
 
-        const result: ProductsResponse = await response.json()
+        const result: { data: string[] } = await response.json()
 
-        if (!Array.isArray(result.data)) {
-          throw new Error('Format data produk dari API tidak valid.')
+        if (Array.isArray(result.data)) {
+          setCategories(['All', ...result.data.filter(
+            (item) => item !== 'All'
+          )])
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return
         }
 
-        setProducts(result.data)
+        console.error('Gagal memuat kategori:', err)
+      }
+    }
+
+    loadCategories()
+
+    return () => controller.abort()
+  }, [])
+
+  // Membaca kategori dari URL, misalnya /products?category=Hoodies.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const requestedCategory = params.get('category')
+
+    if (requestedCategory) {
+      setCategory(requestedCategory)
+    }
+  }, [])
+
+  // Satu-satunya proses untuk mengambil daftar produk.
+  useEffect(() => {
+    const controller = new AbortController()
+
+    async function loadProducts() {
+      try {
+        setIsLoading(true)
+        setError('')
+
+        const result = await getProducts(
+          {
+            q: debouncedSearch,
+            category,
+            minPrice,
+            maxPrice,
+          },
+          controller.signal
+        )
+
+        setProducts(result)
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
           return
@@ -114,62 +108,10 @@ useEffect(() => {
       }
     }
 
-    fetchProducts()
+    loadProducts()
 
     return () => controller.abort()
-  }, [])
-
-  const categories = useMemo(
-    () => [
-      'All',
-      ...Array.from(
-        new Set(products.map((product) => product.category))
-      ),
-    ],
-    [products]
-  )
-
-  // Membaca kategori dari URL, misalnya /products?category=Hoodies.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const requestedCategory = params.get('category')
-
-    if (
-      requestedCategory &&
-      categories.includes(requestedCategory)
-    ) {
-      setCategory(requestedCategory)
-    }
-  }, [categories])
-
-  const filteredProducts = useMemo(() => {
-    const keyword = search.trim().toLowerCase()
-
-    return products.filter((product) => {
-      const matchesSearch =
-        product.name.toLowerCase().includes(keyword) ||
-        product.category.toLowerCase().includes(keyword) ||
-        product.description.toLowerCase().includes(keyword)
-
-      const matchesCategory =
-        category === 'All' || product.category === category
-
-      const matchesMinPrice =
-        minPrice === '' ||
-        product.price >= Number(minPrice)
-
-      const matchesMaxPrice =
-        maxPrice === '' ||
-        product.price <= Number(maxPrice)
-
-      return (
-        matchesSearch &&
-        matchesCategory &&
-        matchesMinPrice &&
-        matchesMaxPrice
-      )
-    })
-  }, [products, search, category, minPrice, maxPrice])
+  }, [debouncedSearch, category, minPrice, maxPrice])
 
   function resetFilters() {
     setSearch('')
@@ -178,8 +120,9 @@ useEffect(() => {
     setMaxPrice('')
   }
 
-  const formatPrice = (price: number) =>
-    `Rp ${price.toLocaleString('id-ID')}`
+  function formatPrice(price: number) {
+    return `Rp ${price.toLocaleString('id-ID')}`
+  }
 
   const invalidPriceRange =
     minPrice !== '' &&
@@ -192,7 +135,6 @@ useEffect(() => {
 
       <main className="min-h-screen bg-white text-neutral-900">
         <section className="mx-auto max-w-7xl px-6 py-12 md:py-16">
-          {/* Header */}
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.25em] text-neutral-500">
@@ -211,7 +153,7 @@ useEffect(() => {
             <p className="text-sm text-neutral-500">
               {isLoading
                 ? 'Loading products...'
-                : `${filteredProducts.length} Products`}
+                : `${products.length} Products`}
             </p>
           </div>
 
@@ -276,9 +218,7 @@ useEffect(() => {
                   min="0"
                   placeholder="e.g. 100000"
                   value={minPrice}
-                  onChange={(event) =>
-                    setMinPrice(event.target.value)
-                  }
+                  onChange={(event) => setMinPrice(event.target.value)}
                   className="w-full rounded-xl border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
                 />
               </div>
@@ -297,9 +237,7 @@ useEffect(() => {
                   min="0"
                   placeholder="e.g. 400000"
                   value={maxPrice}
-                  onChange={(event) =>
-                    setMaxPrice(event.target.value)
-                  }
+                  onChange={(event) => setMaxPrice(event.target.value)}
                   className="w-full rounded-xl border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
                 />
               </div>
@@ -312,7 +250,7 @@ useEffect(() => {
             )}
           </div>
 
-          {/* Reset filters */}
+          {/* Active filters and reset */}
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-neutral-500">
               {category !== 'All' && `Category: ${category}`}
@@ -331,7 +269,7 @@ useEffect(() => {
             </button>
           </div>
 
-          {/* Loading state */}
+          {/* Loading */}
           {isLoading && (
             <div
               role="status"
@@ -341,7 +279,7 @@ useEffect(() => {
             </div>
           )}
 
-          {/* Error state */}
+          {/* Error */}
           {!isLoading && error && (
             <div
               role="alert"
@@ -351,9 +289,7 @@ useEffect(() => {
                 Unable to load products
               </h2>
 
-              <p className="mt-2 text-sm text-red-700">
-                {error}
-              </p>
+              <p className="mt-2 text-sm text-red-700">{error}</p>
 
               <p className="mt-2 text-sm text-red-700">
                 Pastikan backend berjalan di {API_URL}.
@@ -361,7 +297,10 @@ useEffect(() => {
 
               <button
                 type="button"
-                onClick={() => window.location.reload()}
+                onClick={() => {
+                  setSearch((current) => current)
+                  window.location.reload()
+                }}
                 className="mt-4 rounded-full bg-black px-5 py-2 text-sm text-white transition hover:bg-neutral-800"
               >
                 Try again
@@ -371,9 +310,9 @@ useEffect(() => {
 
           {/* Product grid */}
           {!isLoading && !error && !invalidPriceRange && (
-            filteredProducts.length > 0 ? (
+            products.length > 0 ? (
               <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredProducts.map((product) => (
+                {products.map((product) => (
                   <ProductCard
                     key={product.id}
                     product={product}
