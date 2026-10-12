@@ -10,6 +10,8 @@ import ProductCard from '@/components/ProductCard'
 import { getCategories, getProducts } from '@/lib/productApi'
 import type { Product } from '@/types/product'
 
+const PAGE_SIZE = 9
+
 export default function ProductListing() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>(['All'])
@@ -19,6 +21,7 @@ export default function ProductListing() {
   const [minPrice, setMinPrice] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
 
+  const [currentPage, setCurrentPage] = useState(1)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [retryCount, setRetryCount] = useState(0)
@@ -35,7 +38,7 @@ export default function ProductListing() {
       maxPrice !== '' &&
       Number(minPrice) > Number(maxPrice))
 
-  // 1. Membaca filter dari URL saat halaman pertama dibuka.
+  // Membaca filter dari URL saat halaman pertama dibuka.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
 
@@ -47,27 +50,16 @@ export default function ProductListing() {
     setUrlReady(true)
   }, [])
 
-  // 2. Memperbarui URL saat pengguna mengubah filter.
+  // Memperbarui URL ketika filter berubah.
   useEffect(() => {
     if (!urlReady) return
 
     const params = new URLSearchParams()
 
-    if (search.trim()) {
-      params.set('q', search.trim())
-    }
-
-    if (category !== 'All') {
-      params.set('category', category)
-    }
-
-    if (minPrice !== '') {
-      params.set('minPrice', minPrice)
-    }
-
-    if (maxPrice !== '') {
-      params.set('maxPrice', maxPrice)
-    }
+    if (search.trim()) params.set('q', search.trim())
+    if (category !== 'All') params.set('category', category)
+    if (minPrice !== '') params.set('minPrice', minPrice)
+    if (maxPrice !== '') params.set('maxPrice', maxPrice)
 
     const query = params.toString()
     const newUrl = `${window.location.pathname}${
@@ -82,7 +74,7 @@ export default function ProductListing() {
     }
   }, [urlReady, search, category, minPrice, maxPrice])
 
-  // 3. Mengambil daftar kategori dari API.
+  // Mengambil kategori dari API.
   useEffect(() => {
     const controller = new AbortController()
 
@@ -104,7 +96,7 @@ export default function ProductListing() {
     return () => controller.abort()
   }, [])
 
-  // 4. Mengambil produk berdasarkan filter yang aktif.
+  // Mengambil produk berdasarkan filter.
   useEffect(() => {
     if (!urlReady) return
 
@@ -114,6 +106,7 @@ export default function ProductListing() {
       if (invalidPriceRange) {
         setIsLoading(false)
         setError('')
+        setProducts([])
         return
       }
 
@@ -162,11 +155,39 @@ export default function ProductListing() {
     retryCount,
   ])
 
+  // Kembali ke halaman pertama ketika filter berubah.
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [debouncedSearch, category, minPrice, maxPrice])
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(products.length / PAGE_SIZE)
+  )
+
+  // Mencegah halaman aktif melewati jumlah halaman yang tersedia.
+  const safePage = Math.min(currentPage, totalPages)
+
+  const startIndex =
+    products.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE
+
+  const visibleProducts = products.slice(
+    startIndex,
+    startIndex + PAGE_SIZE
+  )
+
+  const firstProduct = products.length === 0 ? 0 : startIndex + 1
+  const lastProduct = Math.min(
+    startIndex + PAGE_SIZE,
+    products.length
+  )
+
   function resetFilters() {
     setSearch('')
     setCategory('All')
     setMinPrice('')
     setMaxPrice('')
+    setCurrentPage(1)
   }
 
   function formatPrice(price: number) {
@@ -183,6 +204,7 @@ export default function ProductListing() {
 
       <main className="min-h-screen bg-white text-neutral-900">
         <section className="mx-auto max-w-7xl px-6 py-12 md:py-16">
+          {/* Heading */}
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.25em] text-neutral-500">
@@ -361,16 +383,75 @@ export default function ProductListing() {
             !error &&
             !invalidPriceRange &&
             (products.length > 0 ? (
-              <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
-                {products.map((product) => (
-                  <ProductCard key={product.id} product={product} />
-                ))}
-              </div>
+              <>
+                <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleProducts.map((product) => (
+                    <ProductCard key={product.id} product={product} />
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                <div className="mt-12 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
+                  <p
+                    className="text-sm text-neutral-500"
+                    aria-live="polite"
+                  >
+                    Showing {firstProduct}–{lastProduct} of {products.length} products
+                  </p>
+
+                  <nav
+                    aria-label="Product pagination"
+                    className="flex items-center gap-2"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCurrentPage((page) => Math.max(1, page - 1))
+                      }
+                      disabled={safePage === 1}
+                      className="rounded-full border border-neutral-300 px-4 py-2 text-sm transition hover:border-black disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Previous
+                    </button>
+
+                    {Array.from(
+                      { length: totalPages },
+                      (_, index) => index + 1
+                    ).map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => setCurrentPage(page)}
+                        aria-label={`Go to page ${page}`}
+                        aria-current={safePage === page ? 'page' : undefined}
+                        className={`h-10 min-w-10 rounded-full px-3 text-sm transition ${
+                          safePage === page
+                            ? 'bg-black text-white'
+                            : 'border border-neutral-300 hover:border-black'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCurrentPage((page) =>
+                          Math.min(totalPages, page + 1)
+                        )
+                      }
+                      disabled={safePage === totalPages}
+                      className="rounded-full border border-neutral-300 px-4 py-2 text-sm transition hover:border-black disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Next
+                    </button>
+                  </nav>
+                </div>
+              </>
             ) : (
               <div className="py-24 text-center">
-                <h2 className="text-xl font-medium">
-                  No products found
-                </h2>
+                <h2 className="text-xl font-medium">No products found</h2>
 
                 <p className="mt-2 text-sm text-neutral-500">
                   Coba kata kunci atau rentang harga yang berbeda.
