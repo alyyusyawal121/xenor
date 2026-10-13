@@ -38,6 +38,63 @@ const CartContext = createContext<CartContextType | undefined>(
   undefined
 )
 
+// Memeriksa satu item yang tersimpan di browser.
+function isValidCartItem(item: unknown): item is CartItem {
+  if (
+    typeof item !== 'object' ||
+    item === null ||
+    Array.isArray(item)
+  ) {
+    return false
+  }
+
+  const value = item as Record<string, unknown>
+
+  return (
+    typeof value.productId === 'number' &&
+    Number.isSafeInteger(value.productId) &&
+    value.productId > 0 &&
+    typeof value.color === 'string' &&
+    value.color.trim().length > 0 &&
+    typeof value.quantity === 'number' &&
+    Number.isSafeInteger(value.quantity) &&
+    value.quantity > 0
+  )
+}
+
+// Membersihkan data dan menggabungkan item duplikat.
+function normalizeCart(items: unknown[]): CartItem[] {
+  const mergedItems = new Map<string, CartItem>()
+
+  for (const item of items) {
+    if (!isValidCartItem(item)) continue
+
+    const normalizedItem: CartItem = {
+      productId: item.productId,
+      color: item.color.trim(),
+      quantity: item.quantity,
+    }
+
+    const key = JSON.stringify([
+      normalizedItem.productId,
+      normalizedItem.color,
+    ])
+
+    const existingItem = mergedItems.get(key)
+
+    if (existingItem) {
+      existingItem.quantity = Math.min(
+        Number.MAX_SAFE_INTEGER,
+        existingItem.quantity + normalizedItem.quantity
+      )
+    } else {
+      mergedItems.set(key, normalizedItem)
+    }
+  }
+
+  return Array.from(mergedItems.values())
+}
+
 export function useCart() {
   const context = useContext(CartContext)
 
@@ -56,6 +113,7 @@ export default function CartProvider({
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [isHydrated, setIsHydrated] = useState(false)
 
+  // Memulihkan keranjang saat aplikasi pertama kali dibuka.
   useEffect(() => {
     try {
       const savedCart = localStorage.getItem(STORAGE_KEY)
@@ -64,21 +122,7 @@ export default function CartProvider({
         const parsedCart: unknown = JSON.parse(savedCart)
 
         if (Array.isArray(parsedCart)) {
-          const validItems = parsedCart.filter(
-            (item): item is CartItem =>
-              item !== null &&
-              typeof item === 'object' &&
-              typeof item.productId === 'number' &&
-              Number.isInteger(item.productId) &&
-              item.productId > 0 &&
-              typeof item.color === 'string' &&
-              item.color.length > 0 &&
-              typeof item.quantity === 'number' &&
-              Number.isInteger(item.quantity) &&
-              item.quantity > 0
-          )
-
-          setCartItems(validItems)
+          setCartItems(normalizeCart(parsedCart))
         }
       }
     } catch {
@@ -88,6 +132,7 @@ export default function CartProvider({
     }
   }, [])
 
+  // Menyimpan keranjang setelah data awal selesai dipulihkan.
   useEffect(() => {
     if (!isHydrated) return
 
@@ -107,23 +152,28 @@ export default function CartProvider({
     quantity: number,
     stock: number
   ) {
+    const normalizedColor = color.trim()
+
     if (
-      !Number.isInteger(productId) ||
+      !Number.isSafeInteger(productId) ||
       productId < 1 ||
-      !color ||
-      !Number.isInteger(quantity) ||
+      !normalizedColor ||
+      !Number.isSafeInteger(quantity) ||
       quantity < 1 ||
-      !Number.isInteger(stock) ||
+      !Number.isSafeInteger(stock) ||
       stock < 1
     ) {
       return
     }
 
     setCartItems((currentItems) => {
-      const existingItem = currentItems.find(
+      // Bersihkan duplikat sebelum menambahkan item baru.
+      const cleanedItems = normalizeCart(currentItems)
+
+      const existingItem = cleanedItems.find(
         (item) =>
           item.productId === productId &&
-          item.color === color
+          item.color === normalizedColor
       )
 
       if (existingItem) {
@@ -132,59 +182,67 @@ export default function CartProvider({
           stock
         )
 
-        return currentItems.map((item) =>
+        return cleanedItems.map((item) =>
           item.productId === productId &&
-          item.color === color
+          item.color === normalizedColor
             ? { ...item, quantity: nextQuantity }
             : item
         )
       }
 
       return [
-        ...currentItems,
+        ...cleanedItems,
         {
           productId,
-          color,
+          color: normalizedColor,
           quantity: Math.min(quantity, stock),
         },
       ]
     })
   }
 
-function updateQuantity(
-  productId: number,
-  color: string,
-  quantity: number,
-  stock: number
-) {
-  if (
-    !Number.isInteger(quantity) ||
-    quantity < 1 ||
-    !Number.isInteger(stock) ||
-    stock < 1
+  function updateQuantity(
+    productId: number,
+    color: string,
+    quantity: number,
+    stock: number
   ) {
-    return
-  }
+    if (
+      !Number.isSafeInteger(quantity) ||
+      quantity < 1 ||
+      !Number.isSafeInteger(stock) ||
+      stock < 1
+    ) {
+      return
+    }
 
-  setCartItems((currentItems) =>
-    currentItems.map((item) =>
-      item.productId === productId && item.color === color
-        ? { ...item, quantity: Math.min(quantity, stock) }
-        : item
+    const normalizedColor = color.trim()
+
+    setCartItems((currentItems) =>
+      normalizeCart(currentItems).map((item) =>
+        item.productId === productId &&
+        item.color === normalizedColor
+          ? {
+              ...item,
+              quantity: Math.min(quantity, stock),
+            }
+          : item
+      )
     )
-  )
-}
+  }
 
   function removeFromCart(
     productId: number,
     color: string
   ) {
+    const normalizedColor = color.trim()
+
     setCartItems((currentItems) =>
-      currentItems.filter(
+      normalizeCart(currentItems).filter(
         (item) =>
           !(
             item.productId === productId &&
-            item.color === color
+            item.color === normalizedColor
           )
       )
     )
