@@ -38,7 +38,6 @@ const CartContext = createContext<CartContextType | undefined>(
   undefined
 )
 
-// Memeriksa satu item yang tersimpan di browser.
 function isValidCartItem(item: unknown): item is CartItem {
   if (
     typeof item !== 'object' ||
@@ -62,7 +61,6 @@ function isValidCartItem(item: unknown): item is CartItem {
   )
 }
 
-// Membersihkan data dan menggabungkan item duplikat.
 function normalizeCart(items: unknown[]): CartItem[] {
   const mergedItems = new Map<string, CartItem>()
 
@@ -113,7 +111,7 @@ export default function CartProvider({
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [isHydrated, setIsHydrated] = useState(false)
 
-  // Memulihkan keranjang saat aplikasi pertama kali dibuka.
+  // Pulihkan keranjang dari localStorage.
   useEffect(() => {
     try {
       const savedCart = localStorage.getItem(STORAGE_KEY)
@@ -132,7 +130,7 @@ export default function CartProvider({
     }
   }, [])
 
-  // Menyimpan keranjang setelah data awal selesai dipulihkan.
+  // Simpan perubahan setelah proses pemulihan selesai.
   useEffect(() => {
     if (!isHydrated) return
 
@@ -167,7 +165,6 @@ export default function CartProvider({
     }
 
     setCartItems((currentItems) => {
-      // Bersihkan duplikat sebelum menambahkan item baru.
       const cleanedItems = normalizeCart(currentItems)
 
       const existingItem = cleanedItems.find(
@@ -208,10 +205,12 @@ export default function CartProvider({
     stock: number
   ) {
     if (
+      !Number.isSafeInteger(productId) ||
+      productId < 1 ||
       !Number.isSafeInteger(quantity) ||
       quantity < 1 ||
       !Number.isSafeInteger(stock) ||
-      stock < 1
+      stock < 0
     ) {
       return
     }
@@ -219,15 +218,29 @@ export default function CartProvider({
     const normalizedColor = color.trim()
 
     setCartItems((currentItems) =>
-      normalizeCart(currentItems).map((item) =>
-        item.productId === productId &&
-        item.color === normalizedColor
-          ? {
-              ...item,
-              quantity: Math.min(quantity, stock),
-            }
-          : item
-      )
+      normalizeCart(currentItems).map((item) => {
+        if (
+          item.productId !== productId ||
+          item.color !== normalizedColor
+        ) {
+          return item
+        }
+
+        // Stok habis: izinkan pengurangan jumlah,
+        // tetapi jangan izinkan jumlah dinaikkan.
+        if (stock === 0) {
+          return {
+            ...item,
+            quantity: Math.min(item.quantity, quantity),
+          }
+        }
+
+        // Stok tersedia: batasi jumlah sesuai stok terbaru.
+        return {
+          ...item,
+          quantity: Math.min(quantity, stock),
+        }
+      })
     )
   }
 
