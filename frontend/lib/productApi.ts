@@ -12,18 +12,19 @@ export interface ProductFilters {
 }
 
 interface ProductsResponse {
-  data: Product[]
-  total: number
+  data: unknown
+  total?: number
 }
 
 interface ProductResponse {
-  data: Product
+  data: unknown
 }
 
 interface CategoriesResponse {
-  data: string[]
+  data: unknown
 }
 
+// Membaca JSON dan menangani respons HTTP yang gagal.
 async function readJson<T>(
   response: Response,
   defaultError: string
@@ -39,6 +40,87 @@ async function readJson<T>(
   }
 }
 
+// Memeriksa apakah nilai merupakan objek.
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value)
+  )
+}
+
+// Memvalidasi satu produk sebelum digunakan frontend.
+function validateProduct(value: unknown): Product {
+  if (!isRecord(value)) {
+    throw new Error('Data produk harus berupa objek.')
+  }
+
+  const { id, name, price, category, image, description, stock, colors } =
+    value
+
+  if (
+    typeof id !== 'number' ||
+    !Number.isInteger(id) ||
+    id < 1
+  ) {
+    throw new Error('ID produk harus berupa bilangan bulat positif.')
+  }
+
+  if (typeof name !== 'string' || !name.trim()) {
+    throw new Error(`Nama produk dengan ID ${id} tidak valid.`)
+  }
+
+  if (
+    typeof price !== 'number' ||
+    !Number.isFinite(price) ||
+    price < 0
+  ) {
+    throw new Error(`Harga produk "${name}" tidak valid.`)
+  }
+
+  if (typeof category !== 'string' || !category.trim()) {
+    throw new Error(`Kategori produk "${name}" tidak valid.`)
+  }
+
+  if (typeof image !== 'string') {
+    throw new Error(`Data gambar produk "${name}" harus berupa teks.`)
+  }
+
+  if (typeof description !== 'string') {
+    throw new Error(`Deskripsi produk "${name}" tidak valid.`)
+  }
+
+  if (
+    typeof stock !== 'number' ||
+    !Number.isInteger(stock) ||
+    stock < 0
+  ) {
+    throw new Error(`Stok produk "${name}" harus bilangan bulat minimal 0.`)
+  }
+
+  if (
+    !Array.isArray(colors) ||
+    !colors.every(
+      (color) => typeof color === 'string' && color.trim().length > 0
+    )
+  ) {
+    throw new Error(`Daftar warna produk "${name}" tidak valid.`)
+  }
+
+  return {
+    id,
+    name: name.trim(),
+    price,
+    category: category.trim(),
+    // String kosong ditangani ProductCard sebagai gambar fallback.
+    image: image.trim(),
+    description: description.trim(),
+    stock,
+    colors: colors.map((color) => color.trim()),
+  }
+}
+
+// Mengambil daftar produk dengan pencarian dan filter.
 export async function getProducts(
   filters: ProductFilters = {},
   signal?: AbortSignal
@@ -71,13 +153,23 @@ export async function getProducts(
     'Gagal mengambil produk'
   )
 
-  if (!result || !Array.isArray(result.data)) {
+  if (!isRecord(result) || !Array.isArray(result.data)) {
     throw new Error('Format daftar produk dari API tidak valid.')
   }
 
-  return result.data
+  return result.data.map((item, index) => {
+    try {
+      return validateProduct(item)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Data tidak valid.'
+
+      throw new Error(`Produk ke-${index + 1}: ${message}`)
+    }
+  })
 }
 
+// Mengambil dan memvalidasi satu produk berdasarkan ID.
 export async function getProductById(
   id: number,
   signal?: AbortSignal
@@ -95,16 +187,14 @@ export async function getProductById(
     'Gagal mengambil detail produk'
   )
 
-  if (
-    !result?.data ||
-    typeof result.data.id !== 'number'
-  ) {
+  if (!isRecord(result) || !('data' in result)) {
     throw new Error('Format detail produk dari API tidak valid.')
   }
 
-  return result.data
+  return validateProduct(result.data)
 }
 
+// Mengambil kategori yang tersedia dari API.
 export async function getCategories(
   signal?: AbortSignal
 ): Promise<string[]> {
@@ -118,15 +208,21 @@ export async function getCategories(
   )
 
   if (
-    !result ||
+    !isRecord(result) ||
     !Array.isArray(result.data) ||
-    !result.data.every((category) => typeof category === 'string')
+    !result.data.every(
+      (category) => typeof category === 'string' && category.trim().length > 0
+    )
   ) {
     throw new Error('Format kategori dari API tidak valid.')
   }
 
   return [
     'All',
-    ...new Set(result.data.filter((category) => category !== 'All')),
+    ...new Set(
+      result.data
+        .map((category) => category.trim())
+        .filter((category) => category !== 'All')
+    ),
   ]
 }
