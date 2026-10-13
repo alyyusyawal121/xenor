@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-
+import ProductCardSkeleton from '@/components/ProductCardSkeleton'
 import { useDebounce } from '@/hooks/useDebounce'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
@@ -340,13 +340,24 @@ export default function ProductListing() {
             </button>
           </div>
 
+
+
           {/* Loading */}
           {(!urlReady || isLoading) && !invalidPriceRange && (
             <div
               role="status"
-              className="py-24 text-center text-neutral-500"
+              aria-label="Memuat produk"
+              className="mt-10"
             >
-              Loading products from API...
+              <p className="mb-6 text-sm text-neutral-500">
+                Memuat produk...
+              </p>
+
+              <div className="grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 6 }, (_, index) => (
+                  <ProductCardSkeleton key={index} />
+                ))}
+              </div>
             </div>
           )}
 
