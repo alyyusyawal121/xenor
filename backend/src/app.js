@@ -324,7 +324,7 @@ app.get("/api/products", (req, res) => {
 });
 
 // POST: menambahkan produk baru.
-app.post("/api/products", (req, res) => {
+app.post("/api/products", requireAdmin, (req, res) => {
   const error = validateProduct(req.body);
 
   if (error) {
