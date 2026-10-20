@@ -4,7 +4,7 @@ const cors = require("cors");
 const authRoutes = require("./routes/authRoutes");
 const sessionMiddleware = require("./config/session");
 const app = express();
-
+const { requireAdmin } = require("./middleware/authMiddleware");
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:3000";
 
@@ -344,7 +344,7 @@ app.post("/api/products", (req, res) => {
 });
 
 // PUT: mengganti seluruh data produk yang sudah ada.
-app.put("/api/products/:id", (req, res) => {
+app.put("/api/products/:id", requireAdmin, (req, res) => {
   const id = parseProductId(req.params.id);
 
   if (id === null) {
@@ -374,6 +374,37 @@ app.put("/api/products/:id", (req, res) => {
   return res.json({
     message: "Produk berhasil diperbarui.",
     data: updatedProduct,
+  });
+});
+
+// DELETE: menghapus produk, khusus admin.
+app.delete("/api/products/:id", requireAdmin, (req, res) => {
+  const id = parseProductId(req.params.id);
+
+  if (id === null) {
+    return res.status(400).json({
+      success: false,
+      message: "ID harus berupa bilangan bulat positif.",
+    });
+  }
+
+  const productIndex = products.findIndex(
+    (product) => product.id === id
+  );
+
+  if (productIndex === -1) {
+    return res.status(404).json({
+      success: false,
+      message: "Produk tidak ditemukan.",
+    });
+  }
+
+  const deletedProduct = products.splice(productIndex, 1)[0];
+
+  return res.status(200).json({
+    success: true,
+    message: "Produk berhasil dihapus.",
+    data: deletedProduct,
   });
 });
 
