@@ -22,16 +22,18 @@ export default function CartPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
+  const [failedImages, setFailedImages] = useState<number[]>([])
 
-  // Mengambil daftar produk dari backend API.
+  // Mengambil produk dari backend.
   useEffect(() => {
     const controller = new AbortController()
 
     async function loadProducts() {
-      try {
-        setIsLoading(true)
-        setError('')
+      setIsLoading(true)
+      setError('')
 
+      try {
         const result = await getProducts({}, controller.signal)
         setProducts(result)
       } catch (err) {
@@ -54,9 +56,9 @@ export default function CartPage() {
     loadProducts()
 
     return () => controller.abort()
-  }, [])
+  }, [retryCount])
 
-  // Menghubungkan ID produk di keranjang dengan data dari API.
+  // Menghubungkan item keranjang dengan data produk dari API.
   const cartDetails = useMemo(
     () =>
       cartItems.map((item) => ({
@@ -76,7 +78,7 @@ export default function CartPage() {
     (item) => item.product === undefined
   )
 
-  const totalItems = availableItems.reduce(
+  const totalItems = cartItems.reduce(
     (total, item) => total + item.quantity,
     0
   )
@@ -87,11 +89,30 @@ export default function CartPage() {
     0
   )
 
+  const hasStockProblem = availableItems.some(
+    (item) =>
+      !item.product ||
+      item.product.stock < 1 ||
+      item.quantity > item.product.stock
+  )
+
+  const canCheckout =
+    !isLoading &&
+    !error &&
+    cartItems.length > 0 &&
+    unavailableItems.length === 0 &&
+    !hasStockProblem
+
+  function formatPrice(price: number) {
+    return `Rp ${price.toLocaleString('id-ID')}`
+  }
+
   return (
     <>
       <Navbar />
 
-      <main className="mx-auto min-h-[60vh] w-full max-w-7xl px-6 py-12 md:py-16">
+      <main className="mx-auto min-h-[60vh] w-full max-w-7xl px-4 py-12 sm:px-6 md:py-16">
+        {/* Judul halaman */}
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-neutral-400">
@@ -103,43 +124,53 @@ export default function CartPage() {
             </h1>
           </div>
 
-          <p className="text-sm text-neutral-500">
+          <p className="text-sm text-neutral-500" aria-live="polite">
             {totalItems} item{totalItems === 1 ? '' : 's'}
           </p>
         </div>
 
-        {isLoading ? (
+        {/* Kondisi loading */}
+        {isLoading && (
           <div
             role="status"
-            className="py-24 text-center text-sm text-neutral-500"
+            className="mt-10 rounded-2xl bg-[#f5f1eb] p-6 text-sm text-neutral-600"
           >
-            Memuat keranjang belanja...
+            Memuat informasi produk dan stok...
           </div>
-        ) : error ? (
+        )}
+
+        {/* Error API tidak mengunci fungsi hapus keranjang */}
+        {!isLoading && error && (
           <div
             role="alert"
-            className="mt-10 rounded-2xl border border-neutral-200 p-8"
+            className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-5"
           >
-            <h2 className="text-lg font-medium">
-              Gagal memuat produk
+            <h2 className="font-medium">
+              Informasi produk belum dapat dimuat
             </h2>
 
-            <p className="mt-3 text-sm text-neutral-500">
+            <p className="mt-2 text-sm leading-6 text-neutral-600">
               {error}
             </p>
 
-            <p className="mt-2 text-sm text-neutral-500">
-              Pastikan backend API aktif dan alamat API sudah benar.
+            <p className="mt-2 text-sm text-neutral-600">
+              Kamu masih bisa menghapus item atau mengosongkan
+              keranjang. Checkout dinonaktifkan sampai data produk
+              berhasil dimuat kembali.
             </p>
 
-            <Link
-              href="/products"
-              className="mt-6 inline-flex rounded-full bg-black px-6 py-3 text-sm text-white transition hover:bg-neutral-800"
+            <button
+              type="button"
+              onClick={() => setRetryCount((count) => count + 1)}
+              className="mt-4 rounded-full bg-black px-5 py-2.5 text-sm text-white transition hover:bg-neutral-800"
             >
-              Kembali ke katalog
-            </Link>
+              Coba lagi
+            </button>
           </div>
-        ) : cartItems.length === 0 ? (
+        )}
+
+        {/* Keranjang kosong */}
+        {!isLoading && !error && cartItems.length === 0 && (
           <div className="py-24 text-center">
             <h2 className="text-xl font-medium">
               Keranjang kamu masih kosong
@@ -156,34 +187,102 @@ export default function CartPage() {
               Jelajahi produk
             </Link>
           </div>
-        ) : (
-          <div className="mt-12 grid gap-12 lg:grid-cols-[1fr_340px]">
+        )}
+
+        {/* Isi keranjang tetap dapat dikelola saat API gagal */}
+        {cartItems.length > 0 && (
+          <div className="mt-10 grid items-start gap-10 lg:grid-cols-[1fr_340px]">
             <section className="space-y-6">
-              {availableItems.map(
+              {cartDetails.map(
                 ({ productId, color, quantity, product }) => {
-                  if (!product) return null
+                  const key = `${productId}-${color}`
+
+                  // Jika API gagal atau produk sudah tidak ada,
+                  // pengguna tetap dapat menghapus item tersebut.
+                  if (!product) {
+                    return (
+                      <article
+                        key={key}
+                        className="rounded-2xl border border-amber-200 p-5"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          <div>
+                            <p className="font-medium">
+                              Produk tidak tersedia
+                            </p>
+
+                            <p className="mt-2 text-sm text-neutral-500">
+                              ID produk: {productId}
+                            </p>
+
+                            <p className="mt-1 text-sm text-neutral-500">
+                              Warna: {color} · Jumlah: {quantity}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              removeFromCart(productId, color)
+                            }
+                            className="text-sm underline underline-offset-4 hover:text-neutral-500"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  }
+
+                  const imageUnavailable =
+                    !product.image.trim() ||
+                    failedImages.includes(productId)
 
                   return (
                     <article
-                      key={`${productId}-${color}`}
+                      key={key}
                       className="flex gap-4 border-b border-neutral-200 pb-6 sm:gap-6"
                     >
+                      {/* Gambar produk dengan fallback */}
                       <Link
                         href={`/products/${product.id}`}
-                        className="relative h-36 w-28 shrink-0 overflow-hidden rounded-xl bg-neutral-100 sm:h-44 sm:w-36"
+                        className="relative h-36 w-28 shrink-0 overflow-hidden rounded-xl bg-[#f3eee7] sm:h-44 sm:w-36"
                       >
-                        <Image
-                          src={product.image}
-                          alt={product.name}
-                          fill
-                          sizes="(max-width: 640px) 112px, 144px"
-                          className="object-cover"
-                        />
+                        {!imageUnavailable ? (
+                          <Image
+                            src={product.image}
+                            alt={product.name}
+                            fill
+                            sizes="(max-width: 640px) 112px, 144px"
+                            onError={() =>
+                              setFailedImages((current) =>
+                                current.includes(productId)
+                                  ? current
+                                  : [...current, productId]
+                              )
+                            }
+                            className="object-cover transition duration-300 hover:scale-105"
+                          />
+                        ) : (
+                          <div
+                            role="img"
+                            aria-label={`Gambar ${product.name} tidak tersedia`}
+                            className="absolute inset-0 flex flex-col items-center justify-center px-2 text-center text-neutral-400"
+                          >
+                            <span aria-hidden="true" className="text-3xl">
+                              ◇
+                            </span>
+
+                            <span className="mt-2 text-xs">
+                              Gambar tidak tersedia
+                            </span>
+                          </div>
+                        )}
                       </Link>
 
                       <div className="flex min-w-0 flex-1 flex-col">
                         <div className="flex items-start justify-between gap-3">
-                          <div>
+                          <div className="min-w-0">
                             <p className="text-xs text-neutral-400">
                               {product.category}
                             </p>
@@ -200,16 +299,12 @@ export default function CartPage() {
                             </p>
 
                             <p className="mt-1 text-sm text-neutral-500">
-                              Harga satuan: Rp{' '}
-                              {product.price.toLocaleString('id-ID')}
+                              {formatPrice(product.price)} / item
                             </p>
                           </div>
 
                           <p className="whitespace-nowrap text-sm font-medium">
-                            Rp{' '}
-                            {(product.price * quantity).toLocaleString(
-                              'id-ID'
-                            )}
+                            {formatPrice(product.price * quantity)}
                           </p>
                         </div>
 
@@ -227,12 +322,15 @@ export default function CartPage() {
                                   product.stock
                                 )
                               }
-                              className="h-8 w-8 rounded-full border border-neutral-200 disabled:opacity-40"
+                              className="h-9 w-9 rounded-full border border-neutral-200 transition hover:border-black disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               −
                             </button>
 
-                            <span className="min-w-4 text-center text-sm">
+                            <span
+                              className="min-w-5 text-center text-sm"
+                              aria-live="polite"
+                            >
                               {quantity}
                             </span>
 
@@ -251,7 +349,7 @@ export default function CartPage() {
                                   product.stock
                                 )
                               }
-                              className="h-8 w-8 rounded-full border border-neutral-200 disabled:opacity-40"
+                              className="h-9 w-9 rounded-full border border-neutral-200 transition hover:border-black disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               +
                             </button>
@@ -268,63 +366,23 @@ export default function CartPage() {
                           </button>
                         </div>
 
-                        {product.stock < 1 && (
-                          <p className="mt-2 text-sm text-red-600">
-                            Stok produk habis. Hapus produk ini dari
-                            keranjang.
+                        {product.stock === 0 && (
+                          <p className="mt-3 text-sm text-red-600">
+                            Stok habis. Hapus produk ini sebelum checkout.
                           </p>
                         )}
 
-                        {quantity > product.stock && product.stock > 0 && (
-                          <p className="mt-2 text-sm text-amber-700">
-                            Jumlah melebihi stok terbaru. Kurangi jumlah
-                            sebelum melanjutkan.
-                          </p>
-                        )}
+                        {quantity > product.stock &&
+                          product.stock > 0 && (
+                            <p className="mt-3 text-sm text-amber-700">
+                              Jumlah melebihi stok terbaru. Kurangi
+                              jumlah menjadi {product.stock} atau kurang.
+                            </p>
+                          )}
                       </div>
                     </article>
                   )
                 }
-              )}
-
-              {unavailableItems.length > 0 && (
-                <div className="rounded-2xl border border-amber-200 p-5">
-                  <h2 className="font-medium">
-                    Produk tidak tersedia
-                  </h2>
-
-                  <p className="mt-2 text-sm text-neutral-500">
-                    Beberapa produk dalam keranjang tidak ditemukan di
-                    API. Hapus produk tersebut untuk membersihkan
-                    keranjang.
-                  </p>
-
-                  <div className="mt-4 space-y-3">
-                    {unavailableItems.map((item) => (
-                      <div
-                        key={`${item.productId}-${item.color}`}
-                        className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-3"
-                      >
-                        <div className="text-sm">
-                          <p>Produk ID: {item.productId}</p>
-                          <p className="text-neutral-500">
-                            Warna: {item.color}
-                          </p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            removeFromCart(item.productId, item.color)
-                          }
-                          className="text-sm underline underline-offset-4"
-                        >
-                          Hapus
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               )}
 
               <button
@@ -336,6 +394,7 @@ export default function CartPage() {
               </button>
             </section>
 
+            {/* Ringkasan pesanan */}
             <aside className="h-fit rounded-2xl border border-neutral-200 p-6">
               <h2 className="text-lg font-medium">
                 Ringkasan pesanan
@@ -343,40 +402,52 @@ export default function CartPage() {
 
               <div className="mt-6 flex justify-between gap-4 text-sm">
                 <span className="text-neutral-500">
-                  Subtotal ({totalItems} item)
+                  Total item
+                </span>
+
+                <span>{totalItems}</span>
+              </div>
+
+              <div className="mt-4 flex justify-between gap-4 text-sm">
+                <span className="text-neutral-500">
+                  Subtotal produk tersedia
                 </span>
 
                 <span className="font-medium">
-                  Rp {subtotal.toLocaleString('id-ID')}
+                  {formatPrice(subtotal)}
                 </span>
               </div>
 
               {unavailableItems.length > 0 && (
                 <p className="mt-4 text-sm text-amber-700">
-                  Ada produk yang tidak tersedia. Periksa keranjang
-                  sebelum checkout.
+                  {unavailableItems.length} item tidak dapat
+                  diverifikasi dari API.
                 </p>
               )}
 
-              <p className="mt-4 text-xs leading-5 text-neutral-500">
-                Biaya pengiriman dan pembayaran belum dihitung.
+              {hasStockProblem && !error && (
+                <p className="mt-4 text-sm text-amber-700">
+                  Periksa jumlah barang karena terdapat masalah stok.
+                </p>
+              )}
+
+              <p className="mt-5 text-xs leading-5 text-neutral-500">
+                Ongkos kirim dan biaya pembayaran belum dihitung.
+                Harga akhir harus diverifikasi kembali oleh backend
+                sebelum transaksi.
               </p>
 
               <button
                 type="button"
-                disabled={
-                  availableItems.length === 0 ||
-                  unavailableItems.length > 0 ||
-                  availableItems.some(
-                    (item) =>
-                      !item.product ||
-                      item.product.stock < 1 ||
-                      item.quantity > item.product.stock
-                  )
+                disabled={!canCheckout}
+                title={
+                  canCheckout
+                    ? 'Checkout belum tersedia'
+                    : 'Pastikan data produk dan stok valid terlebih dahulu'
                 }
                 className="mt-7 w-full rounded-full bg-black px-5 py-3 text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500"
               >
-                Checkout — tahap berikutnya
+                Checkout — segera hadir
               </button>
 
               <Link

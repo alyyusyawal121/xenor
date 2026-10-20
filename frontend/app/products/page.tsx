@@ -1,7 +1,7 @@
 
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ProductCardSkeleton from '@/components/ProductCardSkeleton'
 import { useDebounce } from '@/hooks/useDebounce'
 import Navbar from '@/components/Navbar'
@@ -12,6 +12,19 @@ import type { Product } from '@/types/product'
 
 const PAGE_SIZE = 9
 
+type ProductSortOption =
+  | 'featured'
+  | 'price-asc'
+  | 'price-desc'
+  | 'name-asc'
+
+const VALID_SORT_OPTIONS: ProductSortOption[] = [
+  'featured',
+  'price-asc',
+  'price-desc',
+  'name-asc',
+]
+
 export default function ProductListing() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<string[]>(['All'])
@@ -20,6 +33,7 @@ export default function ProductListing() {
   const [category, setCategory] = useState('All')
   const [minPrice, setMinPrice] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
+  const [sort, setSort] = useState<ProductSortOption>('featured')
 
   const [currentPage, setCurrentPage] = useState(1)
   const [isLoading, setIsLoading] = useState(true)
@@ -31,37 +45,64 @@ export default function ProductListing() {
 
   const invalidPriceRange =
     (minPrice !== '' &&
-      (!Number.isFinite(Number(minPrice)) || Number(minPrice) < 0)) ||
+      (!Number.isFinite(Number(minPrice)) ||
+        Number(minPrice) < 0)) ||
     (maxPrice !== '' &&
-      (!Number.isFinite(Number(maxPrice)) || Number(maxPrice) < 0)) ||
+      (!Number.isFinite(Number(maxPrice)) ||
+        Number(maxPrice) < 0)) ||
     (minPrice !== '' &&
       maxPrice !== '' &&
       Number(minPrice) > Number(maxPrice))
 
-  // Membaca filter dari URL saat halaman pertama dibuka.
+  // Membaca filter dan pengurutan dari URL saat halaman dibuka.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const sortParam = params.get('sort')
 
     setSearch(params.get('q') ?? '')
     setCategory(params.get('category') || 'All')
     setMinPrice(params.get('minPrice') ?? '')
     setMaxPrice(params.get('maxPrice') ?? '')
 
+    setSort(
+      sortParam && VALID_SORT_OPTIONS.includes(
+        sortParam as ProductSortOption
+      )
+        ? (sortParam as ProductSortOption)
+        : 'featured'
+    )
+
     setUrlReady(true)
   }, [])
 
-  // Memperbarui URL ketika filter berubah.
+  // Memperbarui URL ketika filter atau pengurutan berubah.
   useEffect(() => {
     if (!urlReady) return
 
     const params = new URLSearchParams()
 
-    if (search.trim()) params.set('q', search.trim())
-    if (category !== 'All') params.set('category', category)
-    if (minPrice !== '') params.set('minPrice', minPrice)
-    if (maxPrice !== '') params.set('maxPrice', maxPrice)
+    if (search.trim()) {
+      params.set('q', search.trim())
+    }
+
+    if (category !== 'All') {
+      params.set('category', category)
+    }
+
+    if (minPrice !== '') {
+      params.set('minPrice', minPrice)
+    }
+
+    if (maxPrice !== '') {
+      params.set('maxPrice', maxPrice)
+    }
+
+    if (sort !== 'featured') {
+      params.set('sort', sort)
+    }
 
     const query = params.toString()
+
     const newUrl = `${window.location.pathname}${
       query ? `?${query}` : ''
     }${window.location.hash}`
@@ -72,9 +113,9 @@ export default function ProductListing() {
     if (newUrl !== currentUrl) {
       window.history.replaceState(null, '', newUrl)
     }
-  }, [urlReady, search, category, minPrice, maxPrice])
+  }, [urlReady, search, category, minPrice, maxPrice, sort])
 
-  // Mengambil kategori dari API.
+  // Mengambil daftar kategori dari backend.
   useEffect(() => {
     const controller = new AbortController()
 
@@ -96,7 +137,7 @@ export default function ProductListing() {
     return () => controller.abort()
   }, [])
 
-  // Mengambil produk berdasarkan filter.
+  // Mengambil produk dari backend sesuai pencarian dan filter.
   useEffect(() => {
     if (!urlReady) return
 
@@ -155,38 +196,72 @@ export default function ProductListing() {
     retryCount,
   ])
 
-  // Kembali ke halaman pertama ketika filter berubah.
+  // Mengurutkan produk tanpa mengubah array asli dari API.
+  const sortedProducts = useMemo(() => {
+    const result = [...products]
+
+    switch (sort) {
+      case 'price-asc':
+        result.sort((a, b) => a.price - b.price)
+        break
+
+      case 'price-desc':
+        result.sort((a, b) => b.price - a.price)
+        break
+
+      case 'name-asc':
+        result.sort((a, b) =>
+          a.name.localeCompare(b.name, 'id')
+        )
+        break
+
+      case 'featured':
+      default:
+        // Mempertahankan urutan produk dari API.
+        break
+    }
+
+    return result
+  }, [products, sort])
+
+  // Kembali ke halaman pertama saat pencarian/filter berubah.
   useEffect(() => {
     setCurrentPage(1)
-  }, [debouncedSearch, category, minPrice, maxPrice])
+  }, [debouncedSearch, category, minPrice, maxPrice, sort])
 
+  // Perhitungan pagination berdasarkan hasil pengurutan.
   const totalPages = Math.max(
     1,
-    Math.ceil(products.length / PAGE_SIZE)
+    Math.ceil(sortedProducts.length / PAGE_SIZE)
   )
 
-  // Mencegah halaman aktif melewati jumlah halaman yang tersedia.
   const safePage = Math.min(currentPage, totalPages)
 
   const startIndex =
-    products.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE
+    sortedProducts.length === 0
+      ? 0
+      : (safePage - 1) * PAGE_SIZE
 
-  const visibleProducts = products.slice(
+  const visibleProducts = sortedProducts.slice(
     startIndex,
     startIndex + PAGE_SIZE
   )
 
-  const firstProduct = products.length === 0 ? 0 : startIndex + 1
+  const firstProduct =
+    sortedProducts.length === 0 ? 0 : startIndex + 1
+
   const lastProduct = Math.min(
     startIndex + PAGE_SIZE,
-    products.length
+    sortedProducts.length
   )
 
+  // Menghapus seluruh filter dan mengembalikan urutan default.
   function resetFilters() {
     setSearch('')
     setCategory('All')
     setMinPrice('')
     setMaxPrice('')
+    setSort('featured')
     setCurrentPage(1)
   }
 
@@ -203,8 +278,8 @@ export default function ProductListing() {
       <Navbar />
 
       <main className="min-h-screen bg-white text-neutral-900">
-        <section className="mx-auto max-w-7xl px-6 py-12 md:py-16">
-          {/* Heading */}
+        <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 md:py-16">
+          {/* Heading katalog */}
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.25em] text-neutral-500">
@@ -220,14 +295,17 @@ export default function ProductListing() {
               </p>
             </div>
 
-            <p className="text-sm text-neutral-500">
+            <p
+              className="text-sm text-neutral-500"
+              aria-live="polite"
+            >
               {!urlReady || isLoading
                 ? 'Loading products...'
-                : `${products.length} Products`}
+                : `${sortedProducts.length} Products`}
             </p>
           </div>
 
-          {/* Search */}
+          {/* Pencarian produk */}
           <div className="mt-10">
             <label
               htmlFor="product-search"
@@ -246,7 +324,7 @@ export default function ProductListing() {
             />
           </div>
 
-          {/* Category filter */}
+          {/* Filter kategori */}
           <div className="mt-6">
             <p className="mb-3 text-sm font-medium">Category</p>
 
@@ -269,7 +347,7 @@ export default function ProductListing() {
             </div>
           </div>
 
-          {/* Price filter */}
+          {/* Filter rentang harga */}
           <div className="mt-6">
             <p className="mb-3 text-sm font-medium">Price range</p>
 
@@ -286,9 +364,12 @@ export default function ProductListing() {
                   id="min-price"
                   type="number"
                   min="0"
+                  step="any"
                   placeholder="e.g. 100000"
                   value={minPrice}
-                  onChange={(event) => setMinPrice(event.target.value)}
+                  onChange={(event) =>
+                    setMinPrice(event.target.value)
+                  }
                   className="w-full rounded-xl border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
                 />
               </div>
@@ -305,23 +386,57 @@ export default function ProductListing() {
                   id="max-price"
                   type="number"
                   min="0"
+                  step="any"
                   placeholder="e.g. 400000"
                   value={maxPrice}
-                  onChange={(event) => setMaxPrice(event.target.value)}
+                  onChange={(event) =>
+                    setMaxPrice(event.target.value)
+                  }
                   className="w-full rounded-xl border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
                 />
               </div>
             </div>
 
             {invalidPriceRange && (
-              <p role="alert" className="mt-3 text-sm text-red-600">
+              <p
+                role="alert"
+                className="mt-3 text-sm text-red-600"
+              >
                 Masukkan harga yang valid dan pastikan harga minimum
                 tidak melebihi harga maksimum.
               </p>
             )}
           </div>
 
-          {/* Active filters */}
+          {/* Pengurutan produk */}
+          <div className="mt-6">
+            <label
+              htmlFor="product-sort"
+              className="mb-2 block text-sm font-medium"
+            >
+              Sort products
+            </label>
+
+            <select
+              id="product-sort"
+              value={sort}
+              onChange={(event) =>
+                setSort(event.target.value as ProductSortOption)
+              }
+              className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-black sm:max-w-xs"
+            >
+              <option value="featured">Featured</option>
+              <option value="price-asc">
+                Price: Low to High
+              </option>
+              <option value="price-desc">
+                Price: High to Low
+              </option>
+              <option value="name-asc">Name: A to Z</option>
+            </select>
+          </div>
+
+          {/* Informasi filter aktif dan tombol reset */}
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-neutral-500">
               {category !== 'All' && `Category: ${category}`}
@@ -329,6 +444,14 @@ export default function ProductListing() {
                 ` · Min: ${formatPrice(Number(minPrice))}`}
               {maxPrice !== '' &&
                 ` · Max: ${formatPrice(Number(maxPrice))}`}
+              {sort !== 'featured' &&
+                ` · Sort: ${
+                  sort === 'price-asc'
+                    ? 'Price: Low to High'
+                    : sort === 'price-desc'
+                      ? 'Price: High to Low'
+                      : 'Name: A to Z'
+                }`}
             </p>
 
             <button
@@ -340,9 +463,7 @@ export default function ProductListing() {
             </button>
           </div>
 
-
-
-          {/* Loading */}
+          {/* Loading state */}
           {(!urlReady || isLoading) && !invalidPriceRange && (
             <div
               role="status"
@@ -361,43 +482,51 @@ export default function ProductListing() {
             </div>
           )}
 
-          {/* Error */}
-          {urlReady && !isLoading && error && !invalidPriceRange && (
-            <div
-              role="alert"
-              className="mt-10 rounded-2xl border border-red-200 bg-red-50 p-6"
-            >
-              <h2 className="font-medium text-red-800">
-                Unable to load products
-              </h2>
-
-              <p className="mt-2 text-sm text-red-700">{error}</p>
-
-              <p className="mt-2 text-sm text-red-700">
-                Periksa apakah backend API berjalan dan alamat API
-                sudah dikonfigurasi dengan benar.
-              </p>
-
-              <button
-                type="button"
-                onClick={retryLoadingProducts}
-                className="mt-4 rounded-full bg-black px-5 py-2 text-sm text-white transition hover:bg-neutral-800"
+          {/* Error state */}
+          {urlReady &&
+            !isLoading &&
+            error &&
+            !invalidPriceRange && (
+              <div
+                role="alert"
+                className="mt-10 rounded-2xl border border-red-200 bg-red-50 p-6"
               >
-                Try again
-              </button>
-            </div>
-          )}
+                <h2 className="font-medium text-red-800">
+                  Unable to load products
+                </h2>
 
-          {/* Product grid */}
+                <p className="mt-2 text-sm text-red-700">
+                  {error}
+                </p>
+
+                <p className="mt-2 text-sm text-red-700">
+                  Periksa apakah backend API berjalan dan alamat API
+                  sudah dikonfigurasi dengan benar.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={retryLoadingProducts}
+                  className="mt-4 rounded-full bg-black px-5 py-2 text-sm text-white transition hover:bg-neutral-800"
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+
+          {/* Grid produk dan pagination */}
           {urlReady &&
             !isLoading &&
             !error &&
             !invalidPriceRange &&
-            (products.length > 0 ? (
+            (sortedProducts.length > 0 ? (
               <>
                 <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
                   {visibleProducts.map((product) => (
-                    <ProductCard key={product.id} product={product} />
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                    />
                   ))}
                 </div>
 
@@ -407,17 +536,20 @@ export default function ProductListing() {
                     className="text-sm text-neutral-500"
                     aria-live="polite"
                   >
-                    Showing {firstProduct}–{lastProduct} of {products.length} products
+                    Showing {firstProduct}–{lastProduct} of{' '}
+                    {sortedProducts.length} products
                   </p>
 
                   <nav
                     aria-label="Product pagination"
-                    className="flex items-center gap-2"
+                    className="flex flex-wrap items-center justify-center gap-2"
                   >
                     <button
                       type="button"
                       onClick={() =>
-                        setCurrentPage((page) => Math.max(1, page - 1))
+                        setCurrentPage((page) =>
+                          Math.max(1, page - 1)
+                        )
                       }
                       disabled={safePage === 1}
                       className="rounded-full border border-neutral-300 px-4 py-2 text-sm transition hover:border-black disabled:cursor-not-allowed disabled:opacity-40"
@@ -434,7 +566,9 @@ export default function ProductListing() {
                         type="button"
                         onClick={() => setCurrentPage(page)}
                         aria-label={`Go to page ${page}`}
-                        aria-current={safePage === page ? 'page' : undefined}
+                        aria-current={
+                          safePage === page ? 'page' : undefined
+                        }
                         className={`h-10 min-w-10 rounded-full px-3 text-sm transition ${
                           safePage === page
                             ? 'bg-black text-white'
@@ -461,8 +595,11 @@ export default function ProductListing() {
                 </div>
               </>
             ) : (
+              /* Empty state */
               <div className="py-24 text-center">
-                <h2 className="text-xl font-medium">No products found</h2>
+                <h2 className="text-xl font-medium">
+                  No products found
+                </h2>
 
                 <p className="mt-2 text-sm text-neutral-500">
                   Coba kata kunci atau rentang harga yang berbeda.

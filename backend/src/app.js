@@ -1,23 +1,23 @@
 
 const express = require("express");
 const cors = require("cors");
-
+const authRoutes = require("./routes/authRoutes");
+const sessionMiddleware = require("./config/session");
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: "100kb" }));
+app.use("/api/auth", authRoutes);
 
-// Data dummy sementara. Belum menggunakan database.
+// Data dummy sementara.
 const products = [
   {
     id: 1,
     name: "Essential Oversized Tee",
     price: 189000,
     category: "T-Shirts",
-    image:
-      "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab",
-    description:
-      "A relaxed oversized t-shirt designed for everyday comfort.",
+    image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab",
+    description: "A relaxed oversized t-shirt designed for everyday comfort.",
     stock: 20,
     colors: ["Black", "White", "Gray"],
   },
@@ -26,10 +26,8 @@ const products = [
     name: "Minimal Hoodie",
     price: 349000,
     category: "Hoodies",
-    image:
-      "https://images.unsplash.com/photo-1556821840-3a63f95609a7",
-    description:
-      "A clean and comfortable hoodie with a minimalist design.",
+    image: "https://images.unsplash.com/photo-1556821840-3a63f95609a7",
+    description: "A clean and comfortable hoodie with a minimalist design.",
     stock: 15,
     colors: ["Black", "Cream"],
   },
@@ -38,10 +36,8 @@ const products = [
     name: "Classic Sneakers",
     price: 499000,
     category: "Shoes",
-    image:
-      "https://images.unsplash.com/photo-1542291026-7eec264c27ff",
-    description:
-      "Classic sneakers that combine everyday comfort and style.",
+    image: "https://images.unsplash.com/photo-1542291026-7eec264c27ff",
+    description: "Classic sneakers that combine everyday comfort and style.",
     stock: 12,
     colors: ["White", "Red"],
   },
@@ -50,10 +46,8 @@ const products = [
     name: "Relaxed Cargo Pants",
     price: 299000,
     category: "Pants",
-    image:
-      "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f",
-    description:
-      "Relaxed cargo pants designed for versatile daily outfits.",
+    image: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f",
+    description: "Relaxed cargo pants designed for versatile daily outfits.",
     stock: 18,
     colors: ["Black", "Olive"],
   },
@@ -62,59 +56,199 @@ const products = [
     name: "Everyday Cotton Tee",
     price: 159000,
     category: "T-Shirts",
+    image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab",
+    description: "A versatile cotton t-shirt for a simple everyday look.",
+    stock: 25,
+    colors: ["Black", "White"],
+  },
+    {
+    id: 6,
+    name: "Premium Cream Shirt",
+    price: 159000,
+    category: "Shirts",
     image:
-      "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab",
+      "https://images.unsplash.com/photo-1598033129183-c4f50c736f10",
     description:
       "A versatile cotton t-shirt for a simple everyday look.",
     stock: 25,
     colors: ["Black", "White"],
-  },
+  }
 ];
 
-// Helper untuk membaca dan memvalidasi filter harga.
+function isPlainObject(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+// Memvalidasi seluruh field produk.
+function validateProduct(body) {
+  if (!isPlainObject(body)) {
+    return "Body harus berupa object JSON.";
+  }
+
+  const allowedFields = [
+    "name",
+    "price",
+    "category",
+    "image",
+    "description",
+    "stock",
+    "colors",
+  ];
+
+  const unknownFields = Object.keys(body).filter(
+    (field) => !allowedFields.includes(field)
+  );
+
+  if (unknownFields.length > 0) {
+    return `Field tidak dikenal: ${unknownFields.join(", ")}.`;
+  }
+
+  const { name, price, category, image, description, stock, colors } = body;
+
+  if (
+    typeof name !== "string" ||
+    name.trim().length < 2 ||
+    name.trim().length > 100
+  ) {
+    return "Nama harus berisi 2–100 karakter.";
+  }
+
+  if (
+    typeof price !== "number" ||
+    !Number.isSafeInteger(price) ||
+    price < 0
+  ) {
+    return "Harga harus bilangan bulat nol atau lebih.";
+  }
+
+  if (
+    typeof category !== "string" ||
+    category.trim().length < 2 ||
+    category.trim().length > 50
+  ) {
+    return "Kategori harus berisi 2–50 karakter.";
+  }
+
+  if (typeof image !== "string" || image.trim() === "") {
+    return "URL gambar wajib diisi.";
+  }
+
+  try {
+    const parsedUrl = new URL(image.trim());
+
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      return "URL gambar harus menggunakan HTTP atau HTTPS.";
+    }
+  } catch {
+    return "URL gambar tidak valid.";
+  }
+
+  if (
+    typeof description !== "string" ||
+    description.trim().length < 5 ||
+    description.trim().length > 1000
+  ) {
+    return "Deskripsi harus berisi 5–1000 karakter.";
+  }
+
+  if (
+    typeof stock !== "number" ||
+    !Number.isSafeInteger(stock) ||
+    stock < 0
+  ) {
+    return "Stok harus bilangan bulat nol atau lebih.";
+  }
+
+  if (
+    !Array.isArray(colors) ||
+    colors.length === 0 ||
+    colors.length > 20 ||
+    !colors.every(
+      (color) =>
+        typeof color === "string" &&
+        color.trim().length > 0 &&
+        color.trim().length <= 30
+    )
+  ) {
+    return "Warna harus berupa array berisi 1–20 nama warna yang valid.";
+  }
+
+  const normalizedColors = colors.map((color) => color.trim());
+  const uniqueColors = new Set(
+    normalizedColors.map((color) => color.toLowerCase())
+  );
+
+  if (uniqueColors.size !== normalizedColors.length) {
+    return "Nama warna tidak boleh duplikat.";
+  }
+
+  return null;
+}
+
+function normalizeProduct(body, id) {
+  return {
+    id,
+    name: body.name.trim(),
+    price: body.price,
+    category: body.category.trim(),
+    image: body.image.trim(),
+    description: body.description.trim(),
+    stock: body.stock,
+    colors: body.colors.map((color) => color.trim()),
+  };
+}
+
+function parseProductId(value) {
+  if (!/^[1-9]\d*$/.test(value)) {
+    return null;
+  }
+
+  const id = Number(value);
+
+  return Number.isSafeInteger(id) ? id : null;
+}
+
 function parsePriceFilter(value, fieldName) {
   if (value === undefined) {
     return { valid: true, value: undefined };
   }
 
-  // Menolak query berulang seperti ?minPrice=100&minPrice=200.
   if (typeof value !== "string" || value.trim() === "") {
-    return { valid: false, value: undefined };
+    return { valid: false, message: `${fieldName} tidak valid.` };
   }
 
   const price = Number(value);
 
-  if (!Number.isFinite(price) || price < 0) {
+  if (!Number.isSafeInteger(price) || price < 0) {
     return {
       valid: false,
-      value: undefined,
-      message: `${fieldName} harus berupa angka nol atau lebih.`,
+      message: `${fieldName} harus bilangan bulat nol atau lebih.`,
     };
   }
 
   return { valid: true, value: price };
 }
 
-// Health check: memastikan backend berjalan.
+// Health check.
 app.get("/", (req, res) => {
-  res.json({
-    message: "Nexora API is running",
-  });
+  res.json({ message: "Nexora API is running" });
 });
 
-// Mengambil kategori secara otomatis dari data produk.
+// Daftar kategori dinamis.
 app.get("/api/products/categories", (req, res) => {
   const categories = [
     ...new Set(products.map((product) => product.category)),
   ];
 
-  res.json({
-    data: categories,
-    total: categories.length,
-  });
+  res.json({ data: categories, total: categories.length });
 });
 
-// Mengambil produk dengan pencarian dan filter harga/kategori.
+// Daftar produk, pencarian, dan filter.
 app.get("/api/products", (req, res) => {
   const { q, category, minPrice, maxPrice } = req.query;
 
@@ -131,17 +265,11 @@ app.get("/api/products", (req, res) => {
   const maximumResult = parsePriceFilter(maxPrice, "maxPrice");
 
   if (!minimumResult.valid) {
-    return res.status(400).json({
-      message:
-        minimumResult.message || "Parameter minPrice tidak valid.",
-    });
+    return res.status(400).json({ message: minimumResult.message });
   }
 
   if (!maximumResult.valid) {
-    return res.status(400).json({
-      message:
-        maximumResult.message || "Parameter maxPrice tidak valid.",
-    });
+    return res.status(400).json({ message: maximumResult.message });
   }
 
   const minimum = minimumResult.value;
@@ -159,49 +287,92 @@ app.get("/api/products", (req, res) => {
 
   let result = [...products];
 
-  // Pencarian berdasarkan nama, kategori, atau deskripsi.
   if (q && q.trim()) {
     const keyword = q.trim().toLowerCase();
 
-    result = result.filter((product) => {
-      return (
-        product.name.toLowerCase().includes(keyword) ||
-        product.category.toLowerCase().includes(keyword) ||
-        product.description.toLowerCase().includes(keyword)
-      );
-    });
-  }
-
-  // Filter kategori.
-  if (category && category !== "All") {
-    result = result.filter(
-      (product) => product.category === category
+    result = result.filter((product) =>
+      [product.name, product.category, product.description].some(
+        (value) => value.toLowerCase().includes(keyword)
+      )
     );
   }
 
-  // Filter harga minimum.
+  if (category && category !== "All") {
+    result = result.filter((product) => product.category === category);
+  }
+
   if (minimum !== undefined) {
     result = result.filter((product) => product.price >= minimum);
   }
 
-  // Filter harga maksimum.
   if (maximum !== undefined) {
     result = result.filter((product) => product.price <= maximum);
   }
 
-  return res.json({
-    data: result,
-    total: result.length,
+  return res.json({ data: result, total: result.length });
+});
+
+// POST: menambahkan produk baru.
+app.post("/api/products", (req, res) => {
+  const error = validateProduct(req.body);
+
+  if (error) {
+    return res.status(400).json({ message: error });
+  }
+
+  const nextId =
+    products.reduce((maxId, product) => Math.max(maxId, product.id), 0) + 1;
+
+  const newProduct = normalizeProduct(req.body, nextId);
+  products.push(newProduct);
+
+  return res.status(201).json({
+    message: "Produk berhasil ditambahkan.",
+    data: newProduct,
   });
 });
 
-// Mengambil detail satu produk berdasarkan ID.
-app.get("/api/products/:id", (req, res) => {
-  const id = Number(req.params.id);
+// PUT: mengganti seluruh data produk yang sudah ada.
+app.put("/api/products/:id", (req, res) => {
+  const id = parseProductId(req.params.id);
 
-  if (!Number.isSafeInteger(id) || id < 1) {
+  if (id === null) {
     return res.status(400).json({
-      message: "ID produk harus berupa bilangan bulat positif.",
+      message: "ID harus berupa bilangan bulat positif.",
+    });
+  }
+
+  const productIndex = products.findIndex((product) => product.id === id);
+
+  if (productIndex === -1) {
+    return res.status(404).json({
+      message: "Produk tidak ditemukan.",
+    });
+  }
+
+  const error = validateProduct(req.body);
+
+  if (error) {
+    return res.status(400).json({ message: error });
+  }
+
+  // Ganti produk hanya setelah semua validasi lolos.
+  const updatedProduct = normalizeProduct(req.body, id);
+  products[productIndex] = updatedProduct;
+
+  return res.json({
+    message: "Produk berhasil diperbarui.",
+    data: updatedProduct,
+  });
+});
+
+// Detail produk.
+app.get("/api/products/:id", (req, res) => {
+  const id = parseProductId(req.params.id);
+
+  if (id === null) {
+    return res.status(400).json({
+      message: "ID harus berupa bilangan bulat positif.",
     });
   }
 
@@ -213,14 +384,16 @@ app.get("/api/products/:id", (req, res) => {
     });
   }
 
-  return res.json({
-    data: product,
-  });
+  return res.json({ data: product });
 });
 
-// Menangani JSON request yang tidak valid.
+// Error handler untuk JSON yang rusak.
 app.use((err, req, res, next) => {
-  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+  if (
+    err instanceof SyntaxError &&
+    err.status === 400 &&
+    "body" in err
+  ) {
     return res.status(400).json({
       message: "Format JSON request tidak valid.",
     });
@@ -228,5 +401,27 @@ app.use((err, req, res, next) => {
 
   return next(err);
 });
+
+
+const prisma = require("./prisma");
+
+app.get("/api/health/db", async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+
+    res.status(200).json({
+      success: true,
+      message: "Koneksi MySQL melalui Prisma berhasil.",
+    });
+  } catch (error) {
+    console.error("Database connection error:", error.message);
+
+    res.status(503).json({
+      success: false,
+      message: "Database belum dapat diakses.",
+    });
+  }
+});
+
 
 module.exports = app;
