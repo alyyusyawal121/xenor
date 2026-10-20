@@ -5,10 +5,21 @@ const authRoutes = require("./routes/authRoutes");
 const sessionMiddleware = require("./config/session");
 const app = express();
 
-app.use(cors());
-app.use(express.json({ limit: "100kb" }));
-app.use("/api/auth", authRoutes);
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "http://localhost:3000";
 
+app.use(
+  cors({
+    origin: FRONTEND_URL,
+    credentials: true,
+  })
+);
+
+app.use(express.json({ limit: "100kb" }));
+
+
+app.use(sessionMiddleware);
+app.use("/api/auth", authRoutes);
 // Data dummy sementara.
 const products = [
   {
