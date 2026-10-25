@@ -437,18 +437,12 @@ export default function CartPage() {
                 sebelum transaksi.
               </p>
 
-              <button
-                type="button"
-                disabled={!canCheckout}
-                title={
-                  canCheckout
-                    ? 'Checkout belum tersedia'
-                    : 'Pastikan data produk dan stok valid terlebih dahulu'
-                }
-                className="mt-7 w-full rounded-full bg-black px-5 py-3 text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-500"
-              >
-                Checkout — segera hadir
-              </button>
+              <Link
+                href="/checkout"
+                className="mt-4 block w-full rounded-full bg-black px-5 py-3 text-center text-sm text-white transition hover:bg-neutral-800"
+              > 
+                Lanjut ke Checkout
+              </Link>
 
               <Link
                 href="/products"

@@ -5,6 +5,7 @@ const prisma = require("./prisma");
 const authRoutes = require("./routes/authRoutes");
 const sessionMiddleware = require("./config/session");
 const { requireAdmin } = require("./middleware/authMiddleware");
+const orderRoutes = require("./routes/orderRoutes");
 
 const app = express();
 const FRONTEND_URL =
@@ -20,6 +21,7 @@ app.use(
 app.use(express.json({ limit: "100kb" }));
 app.use(sessionMiddleware);
 app.use("/api/auth", authRoutes);
+app.use("/api/orders", orderRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "Nexora API is running" });
