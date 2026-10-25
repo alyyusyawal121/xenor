@@ -1,78 +1,88 @@
 
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { API_URL } from '@/lib/productApi'
 
-type RegisterResponse = {
+type LoginResponse = {
   success: boolean
-  message: string
-}
-
-function getSafeNextPath() {
-  const params = new URLSearchParams(window.location.search)
-  const next = params.get('next')
-
-  if (next?.startsWith('/') && !next.startsWith('//')) {
-    return next
+  message?: string
+  data?: {
+    id: number
+    name: string
+    email: string
+    role: 'ADMIN' | 'USER'
   }
-
-  return '/'
 }
 
-export default function RegisterPage() {
-  const [name, setName] = useState('')
+export default function LoginPage() {
+  const router = useRouter()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+
+    if (params.get('registered') === '1') {
+      setMessage('Registrasi berhasil. Silakan login.')
+    }
+  }, [])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    setMessage('')
 
-    if (password !== confirmPassword) {
-      setError('Konfirmasi password tidak sama.')
-      return
-    }
-
-    if (password.length < 8) {
-      setError('Password minimal 8 karakter.')
+    if (!email.trim() || !password) {
+      setError('Email dan password wajib diisi.')
       return
     }
 
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/register`, {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          name: name.trim(),
           email: email.trim(),
           password,
         }),
       })
 
-      const result: RegisterResponse = await response.json()
+      const result = (await response.json()) as LoginResponse
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || 'Registrasi gagal.')
+      if (!response.ok || !result.success || !result.data) {
+        throw new Error(result.message || 'Login gagal.')
       }
 
-      const next = getSafeNextPath()
-      const query = new URLSearchParams({
-        next,
-        registered: '1',
-      })
+      const params = new URLSearchParams(window.location.search)
+      const next = params.get('next')
 
-      window.location.assign(`/login?${query.toString()}`)
+      const safeNext =
+        next?.startsWith('/') && !next.startsWith('//')
+          ? next
+          : null
+
+      if (safeNext) {
+        router.replace(safeNext)
+      } else if (result.data.role === 'ADMIN') {
+        router.replace('/admin/products')
+      } else {
+        router.replace('/')
+      }
+
+      router.refresh()
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Terjadi kesalahan.'
+        err instanceof Error ? err.message : 'Terjadi kesalahan saat login.'
       )
     } finally {
       setLoading(false)
@@ -87,36 +97,18 @@ export default function RegisterPage() {
         </Link>
 
         <p className="mt-10 text-xs uppercase tracking-[0.25em] text-neutral-400">
-          Join NEXORA
+          Welcome Back
         </p>
 
         <h1 className="mt-3 text-3xl font-semibold tracking-tight">
-          Buat akun pelanggan
+          Login
         </h1>
 
         <p className="mt-3 text-sm leading-6 text-neutral-500">
-          Daftar untuk mulai memilih produk favoritmu.
+          Masuk ke akun kamu untuk melanjutkan pengalaman berbelanja.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-          <div>
-            <label htmlFor="name" className="mb-2 block text-sm font-medium">
-              Nama lengkap
-            </label>
-            <input
-              id="name"
-              type="text"
-              autoComplete="name"
-              minLength={2}
-              maxLength={100}
-              required
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="w-full rounded-lg border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
-              placeholder="Nama lengkap"
-            />
-          </div>
-
           <div>
             <label htmlFor="email" className="mb-2 block text-sm font-medium">
               Email
@@ -128,8 +120,8 @@ export default function RegisterPage() {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
+              placeholder="nama@email.com"
               className="w-full rounded-lg border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
-              placeholder="email@example.com"
             />
           </div>
 
@@ -140,32 +132,20 @@ export default function RegisterPage() {
             <input
               id="password"
               type="password"
-              autoComplete="new-password"
-              minLength={8}
-              maxLength={72}
+              autoComplete="current-password"
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              placeholder="Masukkan password"
               className="w-full rounded-lg border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
-              placeholder="Minimal 8 karakter"
             />
           </div>
 
-          <div>
-            <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium">
-              Konfirmasi password
-            </label>
-            <input
-              id="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              required
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              className="w-full rounded-lg border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
-              placeholder="Ulangi password"
-            />
-          </div>
+          {message && (
+            <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
+              {message}
+            </p>
+          )}
 
           {error && (
             <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
@@ -178,19 +158,26 @@ export default function RegisterPage() {
             disabled={loading}
             className="w-full rounded-full bg-black px-5 py-3.5 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:opacity-60"
           >
-            {loading ? 'Membuat akun...' : 'Daftar'}
+            {loading ? 'Memeriksa akun...' : 'Login'}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-neutral-500">
-          Sudah punya akun?{' '}
+          Belum punya akun?{' '}
           <Link
-            href={`/login${typeof window !== 'undefined' && window.location.search ? window.location.search : ''}`}
+            href="/register"
             className="font-medium text-black underline underline-offset-4"
           >
-            Login
+            Register
           </Link>
         </p>
+
+        <Link
+          href="/"
+          className="mt-5 block text-center text-xs text-neutral-500 hover:text-black"
+        >
+          ← Kembali ke halaman utama
+        </Link>
       </section>
     </main>
   )
