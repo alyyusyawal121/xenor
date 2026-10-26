@@ -1,15 +1,35 @@
 
 const express = require("express");
 const prisma = require("../prisma");
-const { requireAuth } = require("../middleware/authMiddleware");
+const {
+  requireAuth,
+  requireAdmin,
+} = require("../middleware/authMiddleware");
 
 const router = express.Router();
+
+const VALID_ORDER_STATUSES = [
+  "PENDING",
+  "PAID",
+  "PROCESSING",
+  "SHIPPED",
+  "COMPLETED",
+  "CANCELLED",
+];
+
+function parseOrderId(value) {
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) {
+    return null;
+  }
+
+  const id = Number(value);
+  return Number.isSafeInteger(id) ? id : null;
+}
 
 // Membuat pesanan baru.
 router.post("/", requireAuth, async (req, res) => {
   const { items, shippingAddress } = req.body;
 
-  // Validasi alamat pengiriman.
   if (
     typeof shippingAddress !== "string" ||
     shippingAddress.trim().length < 10 ||
@@ -21,7 +41,6 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
-  // Validasi daftar barang.
   if (!Array.isArray(items) || items.length < 1 || items.length > 50) {
     return res.status(400).json({
       success: false,
@@ -56,7 +75,6 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
-  // Cegah item yang sama dikirim berulang dengan warna yang sama.
   const itemKeys = normalizedItems.map(
     (item) => `${item.productId}:${item.color.toLowerCase()}`
   );
@@ -90,7 +108,6 @@ router.post("/", requireAuth, async (req, res) => {
         throw error;
       }
 
-      // Periksa warna dan hitung total berdasarkan harga database.
       let total = 0;
       const orderItems = [];
 
@@ -132,8 +149,6 @@ router.post("/", requireAuth, async (req, res) => {
         });
       }
 
-      // Kurangi stok secara aman di dalam transaksi.
-      // Jika stok kurang, seluruh transaksi dibatalkan.
       const quantitiesByProduct = new Map();
 
       for (const item of normalizedItems) {
@@ -164,7 +179,6 @@ router.post("/", requireAuth, async (req, res) => {
         }
       }
 
-      // Simpan pesanan dan detail item ke MySQL.
       return tx.order.create({
         data: {
           userId: req.session.user.id,
@@ -202,7 +216,102 @@ router.post("/", requireAuth, async (req, res) => {
   }
 });
 
-// Melihat daftar pesanan milik pengguna yang sedang login.
+// ADMIN: melihat seluruh pesanan dan informasi pelanggan.
+router.get("/admin", requireAdmin, async (req, res) => {
+  try {
+    const orders = await prisma.order.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        items: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: orders,
+      total: orders.length,
+    });
+  } catch (error) {
+    console.error("Get all orders error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Gagal mengambil seluruh pesanan.",
+    });
+  }
+});
+
+// ADMIN: memperbarui status pesanan.
+router.patch("/admin/:id/status", requireAdmin, async (req, res) => {
+  const id = parseOrderId(req.params.id);
+  const { status } = req.body || {};
+
+  if (id === null) {
+    return res.status(400).json({
+      success: false,
+      message: "ID pesanan harus berupa bilangan bulat positif.",
+    });
+  }
+
+  if (
+    typeof status !== "string" ||
+    !VALID_ORDER_STATUSES.includes(status)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Status pesanan tidak valid.",
+      allowedStatuses: VALID_ORDER_STATUSES,
+    });
+  }
+
+  try {
+    const order = await prisma.order.update({
+      where: { id },
+      data: { status },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        items: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Status pesanan berhasil diperbarui.",
+      data: order,
+    });
+  } catch (error) {
+    if (error.code === "P2025") {
+      return res.status(404).json({
+        success: false,
+        message: "Pesanan tidak ditemukan.",
+      });
+    }
+
+    console.error("Update order status error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Gagal memperbarui status pesanan.",
+    });
+  }
+});
+
+// Pengguna biasa: hanya melihat pesanan miliknya sendiri.
 router.get("/", requireAuth, async (req, res) => {
   try {
     const orders = await prisma.order.findMany({
